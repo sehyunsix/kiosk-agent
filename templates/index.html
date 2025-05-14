@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>실시간 화면 스트리밍 및 채팅 (FastAPI)</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start; /* 상단 정렬 */
+            gap: 20px; /* 비디오와 채팅 사이 간격 */
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+            width: 90%;
+            max-width: 1200px;
+        }
+        .video-container {
+            flex: 2; /* 비디오 영역이 채팅 영역보다 넓게 */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background-color: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            height: 500px; /* 채팅창 높이 고정 또는 max-height 설정 */
+        }
+        h1, h2 {
+            color: #333;
+            text-align: center;
+            margin-top: 0;
+        }
+        #screenView {
+            border: 1px solid #ddd;
+            max-width: 100%;
+            height: auto;
+            background-color: #000;
+        }
+        #chatBox {
+            flex-grow: 1;
+            border: 1px solid #ddd;
+            padding: 10px;
+            overflow-y: auto; /* 메시지가 많아지면 스크롤 */
+            margin-bottom: 10px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+        }
+        #chatBox p {
+            margin: 5px 0;
+            padding: 8px;
+            border-radius: 4px;
+        }
+        #chatBox .my-message {
+            text-align: right;
+            background-color: #dcf8c6; /* 내 메시지 배경 */
+            margin-left: auto; /* 오른쪽 정렬 */
+            max-width: 70%;
+        }
+        #chatBox .other-message {
+            text-align: left;
+            background-color: #e9e9eb; /* 다른 사람 메시지 배경 */
+            margin-right: auto; /* 왼쪽 정렬 */
+            max-width: 70%;
+        }
+        #messageInput {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: calc(100% - 80px - 22px); /* 버튼 및 패딩 고려 */
+            margin-right: 10px;
+        }
+        #sendButton {
+            padding: 10px 15px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        #sendButton:hover {
+            background-color: #0056b3;
+        }
+        .input-area {
+            display: flex;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="video-container">
+            <h1>실시간 화면 스트리밍</h1>
+            <img id="screenView" src="/video_feed" alt="Screen Stream">
+        </div>
+        <div class="chat-container">
+            <h2>실시간 채팅</h2>
+            <div id="chatBox">
+                <!-- 채팅 메시지가 여기에 표시됩니다 -->
+            </div>
+            <div class="input-area">
+                <input type="text" id="messageInput" placeholder="메시지를 입력하세요...">
+                <button id="sendButton">전송</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const chatBox = document.getElementById('chatBox');
+        const messageInput = document.getElementById('messageInput');
+        const sendButton = document.getElementById('sendButton');
+
+        // 웹소켓 연결 설정 (FastAPI 서버의 WebSocket 엔드포인트 주소)
+        // 현재 페이지의 프로토콜(http/https)에 따라 ws/wss를 결정합니다.
+        const wsProtocol = window.location.protocol === "https:" ? "wss" : "ws";
+        const wsHost = window.location.host; // 예: localhost:8000
+        const socket = new WebSocket(`${wsProtocol}://${wsHost}/ws/chat`);
+
+        let clientId = "user_" + Math.random().toString(36).substr(2, 9); // 간단한 클라이언트 ID 생성
+
+        socket.onopen = function(event) {
+            console.log("웹소켓 연결 성공!");
+            addMessageToChatBox("서버에 연결되었습니다.", "system");
+        };
+
+        socket.onmessage = function(event) {
+            const messageData = JSON.parse(event.data);
+            // 메시지 객체에 senderId가 있다고 가정
+            const messageType = messageData.senderId === clientId ? "my-message" : "other-message";
+            addMessageToChatBox(`${messageData.senderId || '익명'}: ${messageData.message}`, messageType);
+        };
+
+        socket.onclose = function(event) {
+            console.log("웹소켓 연결이 닫혔습니다.");
+            addMessageToChatBox("서버와의 연결이 끊어졌습니다.", "system");
+        };
+
+        socket.onerror = function(error) {
+            console.error("웹소켓 오류:", error);
+            addMessageToChatBox("연결 오류가 발생했습니다.", "system-error");
+        };
+
+        function sendMessage() {
+            const message = messageInput.value;
+            if (message.trim() !== "") {
+                const messageData = {
+                    senderId: clientId, // 메시지에 클라이언트 ID 포함
+                    message: message
+                };
+                socket.send(JSON.stringify(messageData));
+                // addMessageToChatBox(`나: ${message}`, "my-message"); // 서버에서 다시 받을 것이므로 주석 처리 또는 선택적 사용
+                messageInput.value = ""; // 입력창 비우기
+            }
+        }
+
+        sendButton.onclick = sendMessage;
+        messageInput.addEventListener("keypress", function(event) {
+            if (event.key === "Enter") {
+                sendMessage();
+            }
+        });
+
+        function addMessageToChatBox(message, type) {
+            const p = document.createElement('p');
+            p.textContent = message;
+            if (type === "my-message") {
+                p.className = "my-message";
+            } else if (type === "other-message") {
+                p.className = "other-message";
+            } else if (type === "system" || type === "system-error") {
+                p.style.fontStyle = "italic";
+                p.style.color = type === "system-error" ? "red" : "#888";
+                p.style.textAlign = "center";
+            }
+            chatBox.appendChild(p);
+            chatBox.scrollTop = chatBox.scrollHeight; // 새 메시지가 오면 스크롤을 맨 아래로
+        }
+
+        console.log("화면 스트리밍 및 채팅 페이지가 로드되었습니다.");
+    </script>
+</body>
+</html>
